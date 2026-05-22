@@ -550,7 +550,7 @@ if (!liveJobUrl) {
   warn('live archive skipped (Greenhouse API unreachable)');
 } else {
   const startedAt = Date.now();
-  const archiveOut = run(`node archive-posting.mjs "${liveJobUrl}"`, [], { timeout: 60000 });
+  const archiveOut = run('node', ['archive-posting.mjs', liveJobUrl], { timeout: 60000 });
 
   if (archiveOut === null) {
     fail('live archive: script exited non-zero on live URL');
