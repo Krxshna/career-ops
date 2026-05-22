@@ -203,7 +203,7 @@ async function extractPipelineEntries() {
 // ── Core archive function ────────────────────────────────────────────────────
 
 async function archiveUrl(browser, url, { company: companyHint, role: roleHint } = {}) {
-  console.log(`\  ${url}`);
+  console.log(`\n🔗  ${url}`);
 
   const page = await browser.newPage();
 
