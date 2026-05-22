@@ -543,7 +543,12 @@ let liveJobUrl = null;
 try {
   const res = await fetch('https://boards-api.greenhouse.io/v1/boards/anthropic/jobs?content=false');
   const { jobs } = await res.json();
-  liveJobUrl = jobs?.[0]?.absolute_url ?? null;
+  const candidate = jobs?.[0]?.absolute_url ?? null;
+  if (candidate) {
+    const u = new URL(candidate);
+    const allowed = new Set(['boards.greenhouse.io', 'job-boards.greenhouse.io']);
+    if (u.protocol === 'https:' && allowed.has(u.hostname)) liveJobUrl = candidate;
+  }
 } catch { /* offline — degrade gracefully */ }
 
 if (!liveJobUrl) {
