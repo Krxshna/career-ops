@@ -504,9 +504,9 @@ if (fileExists('VERSION')) {
   fail('VERSION file missing');
 }
 
-// ── 11. ARCHIVE-POSTING ─────────────────────────────────────────
+// ── 12. ARCHIVE-POSTING ─────────────────────────────────────────
 
-console.log('\n11. archive-posting.mjs');
+console.log('\n12. archive-posting.mjs');
 
 const JDS_DIR = join(ROOT, 'jds');
 const todayStr = new Date().toISOString().split('T')[0];
@@ -582,9 +582,9 @@ if (!liveJobUrl) {
   }
 }
 
-// ── 11. LOCATION FILTER — always_allow tier ───────────────────────
+// ── 13. LOCATION FILTER — always_allow tier ───────────────────────
 
-console.log('\n11. Location filter — always_allow tier');
+console.log('\n13. Location filter — always_allow tier');
 
 try {
   const { buildLocationFilter } = await import(pathToFileURL(join(ROOT, 'scan.mjs')).href);
