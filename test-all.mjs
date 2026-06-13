@@ -508,7 +508,6 @@ if (fileExists('VERSION')) {
 
 console.log('\n12. archive-posting.mjs');
 
-const JDS_DIR = join(ROOT, 'jds');
 const todayStr = new Date().toISOString().split('T')[0];
 
 // dry-run: URL-based company detection across each supported ATS
@@ -517,7 +516,7 @@ for (const [url, expected] of [
   ['https://jobs.ashbyhq.com/ElevenLabs/abc',      'elevenlabs'],
   ['https://jobs.lever.co/retool/xyz',              'retool'],
 ]) {
-  const out = run(`node archive-posting.mjs --dry-run "${url}"`);
+  const out = run(NODE, ['archive-posting.mjs', '--dry-run', url]);
   const { hostname } = new URL(url);
   out?.toLowerCase().includes(expected)
     ? pass(`dry-run: company detected from ${hostname}`)
@@ -525,59 +524,85 @@ for (const [url, expected] of [
 }
 
 // dry-run: --company / --role overrides win over URL detection
-const overrideOut = run(
-  'node archive-posting.mjs --dry-run "https://jobs.lever.co/retool/xyz" --company=Acme --role="Staff Engineer"'
-);
+const overrideOut = run(NODE, [
+  'archive-posting.mjs', '--dry-run',
+  'https://jobs.lever.co/retool/xyz', '--company=Acme', '--role=Staff Engineer',
+]);
 overrideOut?.includes('Acme') && overrideOut?.includes('staff-engineer')
   ? pass('dry-run: --company and --role overrides respected')
   : fail('dry-run: --company / --role overrides not reflected in output');
 
 // dry-run: output always contains a local:jds/ reference and today's date
-const refOut = run('node archive-posting.mjs --dry-run "https://boards.greenhouse.io/openai/jobs/123"');
+const refOut = run(NODE, ['archive-posting.mjs', '--dry-run', 'https://boards.greenhouse.io/openai/jobs/123']);
 refOut?.includes('local:jds/') && refOut?.includes(todayStr)
   ? pass('dry-run: local:jds/ reference and date emitted')
   : fail('dry-run: reference or date missing from output');
 
-// live integration: real Playwright capture against a public Greenhouse posting
-let liveJobUrl = null;
+// argument validation: no args → shows help, exits 0
+run(NODE, ['archive-posting.mjs']) !== null
+  ? pass('no-args: exits 0 (shows help)')
+  : fail('no-args: should exit 0 and print help');
+
+// argument validation: flag without URL → exits non-zero
+run(NODE, ['archive-posting.mjs', '--dry-run']) === null
+  ? pass('flag-without-url: exits non-zero (URL required)')
+  : fail('flag-without-url: should exit non-zero when URL is missing');
+
+// argument validation: --company without URL → exits non-zero
+run(NODE, ['archive-posting.mjs', '--company=Acme']) === null
+  ? pass('--company without URL: exits non-zero')
+  : fail('--company without URL: should exit non-zero');
+
+// live render: gated behind Playwright executable availability
+let hasBrowser = false;
 try {
-  const res = await fetch('https://boards-api.greenhouse.io/v1/boards/anthropic/jobs?content=false');
-  const { jobs } = await res.json();
-  const candidate = jobs?.[0]?.absolute_url ?? null;
-  if (candidate) {
-    const u = new URL(candidate);
-    const allowed = new Set(['boards.greenhouse.io', 'job-boards.greenhouse.io']);
-    if (u.protocol === 'https:' && allowed.has(u.hostname)) liveJobUrl = candidate;
-  }
-} catch { /* offline — degrade gracefully */ }
+  const { chromium } = await import('playwright');
+  hasBrowser = existsSync(chromium.executablePath());
+} catch { /* playwright not installed */ }
 
-if (!liveJobUrl) {
-  warn('live archive skipped (Greenhouse API unreachable)');
+if (!hasBrowser) {
+  warn('archive render skipped — no Playwright browser in env');
 } else {
-  const startedAt = Date.now();
-  const archiveOut = run('node', ['archive-posting.mjs', liveJobUrl], { timeout: 60000 });
+  let liveJobUrl = null;
+  try {
+    const res = await fetch('https://boards-api.greenhouse.io/v1/boards/anthropic/jobs?content=false');
+    const { jobs } = await res.json();
+    const candidate = jobs?.[0]?.absolute_url ?? null;
+    if (candidate) {
+      const u = new URL(candidate);
+      const allowed = new Set(['boards.greenhouse.io', 'job-boards.greenhouse.io']);
+      if (u.protocol === 'https:' && allowed.has(u.hostname)) liveJobUrl = candidate;
+    }
+  } catch { /* offline — degrade gracefully */ }
 
-  if (archiveOut === null) {
-    fail('live archive: script exited non-zero on live URL');
+  if (!liveJobUrl) {
+    warn('archive render skipped — Greenhouse API unreachable');
   } else {
-    pass('live archive: exited 0');
+    const JDS_DIR = join(ROOT, 'jds');
+    const startedAt = Date.now();
+    const archiveOut = run('node', ['archive-posting.mjs', liveJobUrl], { timeout: 60000 });
 
-    // detect by mtime — handles re-archiving the same URL (overwrite, not new file)
-    const recent = existsSync(JDS_DIR)
-      ? readdirSync(JDS_DIR)
-          .filter(f => f.endsWith('.pdf'))
-          .filter(f => statSync(join(JDS_DIR, f)).mtimeMs >= startedAt)
-      : [];
-
-    if (recent.length === 0) {
-      fail('live archive: no PDF written to jds/ during test run');
+    if (archiveOut === null) {
+      fail('live archive: script exited non-zero on live URL');
     } else {
-      const pdf = join(JDS_DIR, recent[0]);
-      const { size } = statSync(pdf);
-      size > 50 * 1024
-        ? pass(`live archive: PDF has real content (${(size / 1024).toFixed(0)} KB)`)
-        : fail(`live archive: PDF suspiciously small — likely empty page (${size} bytes)`);
-      unlinkSync(pdf);
+      pass('live archive: exited 0');
+
+      const recent = existsSync(JDS_DIR)
+        ? readdirSync(JDS_DIR)
+            .filter(f => f.endsWith('.pdf'))
+            .filter(f => statSync(join(JDS_DIR, f)).mtimeMs >= startedAt)
+        : [];
+
+      if (recent.length === 0) {
+        fail('live archive: no PDF written to jds/ during test run');
+      } else {
+        const pdf = join(JDS_DIR, recent[0]);
+        const { size } = statSync(pdf);
+        size > 50 * 1024
+          ? pass(`live archive: PDF has real content (${(size / 1024).toFixed(0)} KB)`)
+          : fail(`live archive: PDF suspiciously small — likely empty page (${size} bytes)`);
+        unlinkSync(pdf);
+      }
     }
   }
 }
